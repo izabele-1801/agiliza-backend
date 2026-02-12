@@ -111,7 +111,7 @@ class ExcelProcessor(FileProcessor):
         df = df.loc[:, ~df.columns.duplicated(keep='first')]
         
         # Extrair apenas as colunas necessárias (sem duplicatas)
-        required_cols = ['PEDIDO', 'CODCLI', 'CNPJ', 'EAN', 'DESCRICAO', 'QTDE', 'PREÇO', 'TOTAL']
+        required_cols = ['CNPJ', 'EAN', 'DESCRICAO', 'QTDE', 'PREÇO']
         
         # Manter primeira ocorrência de cada coluna necessária
         available_cols = []
@@ -127,11 +127,11 @@ class ExcelProcessor(FileProcessor):
         # Adicionar colunas faltantes (em branco)
         for col in required_cols:
             if col not in df.columns:
-                # PEDIDO usa valor padrão '0' se não existe na planilha original
-                df[col] = '0' if col == 'PEDIDO' else ''
+                # Colunas vazias
+                df[col] = ''
         
         # Reordenar para ordem padrão (sem duplicatas)
-        order = ['PEDIDO', 'CODCLI', 'CNPJ', 'EAN', 'DESCRICAO', 'QTDE', 'PREÇO', 'TOTAL']
+        order = ['CNPJ', 'EAN', 'DESCRICAO', 'QTDE', 'PREÇO']
         
         # Manter apenas as colunas que existem e sem duplicatas
         order = [col for col in order if col in df.columns]
@@ -156,7 +156,7 @@ class ExcelProcessor(FileProcessor):
         # Procurar por coluna PREÇO (com ou sem acento)
         preco_col = None
         for col in df.columns:
-            if col.upper() == 'PREÇO' or col.upper() == 'PRECO':
+            if col.upper() == 'PREÇO' or col.upper() == 'PREÇO':
                 preco_col = col
                 break
         
@@ -208,43 +208,25 @@ class ExcelProcessor(FileProcessor):
             print(f"[WARN] Filtragem eliminou todos os dados! Tentando sem filtro...")
             df = df_antes_filtro
         
-        # Adicionar coluna TOTAL (QTDE × PRECO) quando aplicável
-        has_total = 'TOTAL' in df.columns
+        # Colunas TOTAL removidas conforme requisição
         can_compute_total = 'QTDE' in df.columns and 'PREÇO' in df.columns
 
         if can_compute_total:
-            # Garantir que QTDE e PREÇO são numéricos ANTES de fazer operações
+            # Garantir que QTDE e PREÇO são numéricos
             try:
                 df['QTDE'] = pd.to_numeric(df['QTDE'], errors='coerce').fillna(0).astype(int)
                 df['PREÇO'] = pd.to_numeric(df['PREÇO'], errors='coerce').fillna(0.0)
             except Exception as e:
                 print(f"[WARN] Erro ao garantir tipos numéricos para QTDE/PREÇO: {e}")
-            
-            # Se TOTAL existe, garantir que é numérico ANTES de comparar
-            if has_total:
-                try:
-                    df['TOTAL'] = pd.to_numeric(df['TOTAL'], errors='coerce').fillna(0.0)
-                except Exception as e:
-                    print(f"[WARN] Erro ao coercionar TOTAL para numérico: {e}")
-                    df['TOTAL'] = 0.0
-            
-            # Se TOTAL não existe ou está todo zerado/nulo, recalcula a partir de QTDE x PREÇO
-            should_override_total = (not has_total) or df['TOTAL'].fillna(0).eq(0).all()
-            if should_override_total:
-                try:
-                    df['TOTAL'] = (df['QTDE'] * df['PREÇO']).round(2)
-                except Exception as e:
-                    print(f"[WARN] Erro ao calcular TOTAL (QTDE × PREÇO): {e}")
-                    df['TOTAL'] = 0.0
         else:
             # Sem preço, zera total se não existir
             if not has_total:
                 df['TOTAL'] = 0.0
         
         # Reordenar colunas com TOTAL ao final
-        col_order = ['PEDIDO', 'CODCLI', 'CNPJ', 'EAN', 'DESCRICAO', 'PRECO_UNITARIO', 'QUANTIDADE', 'TOTAL']
+        col_order = ['CNPJ', 'EAN', 'DESCRICAO', 'PRECO_UNITARIO', 'QUANTIDADE', 'TOTAL']
         # Usar nomes reais das colunas (após normalização)
-        col_order_real = [col for col in ['PEDIDO', 'CODCLI', 'CNPJ', 'EAN', 'DESCRICAO', 'PREÇO', 'QTDE', 'TOTAL'] if col in df.columns]
+        col_order_real = [col for col in ['CNPJ', 'EAN', 'DESCRICAO', 'PREÇO', 'QTDE', 'TOTAL'] if col in df.columns]
         df = df[col_order_real]
         
         return df
@@ -261,9 +243,7 @@ class ExcelProcessor(FileProcessor):
         # Remover colunas duplicadas
         df = df.loc[:, ~df.columns.duplicated(keep='first')]
         
-        # Garantir coluna CODCLI vazia (conforme Regra 06)
-        if 'CODCLI' not in df.columns:
-            df.insert(0, 'CODCLI', '')
+        # Colunas já estão como esperado
         
         # Garantir CNPJ da metadata
         if 'CNPJ' not in df.columns and 'cnpj' in metadados:
@@ -334,15 +314,13 @@ class ExcelProcessor(FileProcessor):
                 lambda x: str(int(x)) if isinstance(x, float) and x != '' else str(x)
             )
         
-        # Usar EAN como CODCLI se não houver
-        if 'CODCLI' not in df.columns:
-            df['CODCLI'] = df['EAN']
+        # EAN já é usado para identificação
         
         # Filtrar linhas válidas (remover vazias) - modo lenient porque UniversalExcelParser já filtra
         df = self._filtrar_linhas_validas(df, strict=False)
         
         # Reordenar colunas padrão (TOTAL SEMPRE NO FINAL)
-        col_order = ['PEDIDO', 'CODCLI', 'CNPJ', 'EAN', 'DESCRICAO', 'PREÇO', 'QTDE', 'TOTAL']
+        col_order = ['CNPJ', 'EAN', 'DESCRICAO', 'PREÇO', 'QTDE', 'TOTAL']
         col_order_real = [col for col in col_order if col in df.columns]
         
         # Garantir que TOTAL está lá

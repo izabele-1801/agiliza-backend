@@ -43,7 +43,7 @@ class ImageProcessor(FileProcessor):
         
         return cls._reader
 
-    def process(self, file_content: bytes) -> pd.DataFrame | None:
+    def process(self, file_content: bytes, filename: str = None) -> pd.DataFrame | None:
         """Processa imagem e extrai dados de pedidos via OCR."""
         try:
             return self._extract_data(file_content)
@@ -265,7 +265,6 @@ class ImageProcessor(FileProcessor):
                     print(f"     [VALIDO] QTD={qtd}, PRECO=R${preco_unit:.2f}, TOTAL=R${valor_total:.2f}")
                     
                     dados.append({
-                        'CODCLI': ean_item['texto'],
                         'CNPJ': cnpj_extraido,
                         'EAN': ean_item['texto'],
                         'DESCRICAO': descricao,
@@ -510,7 +509,6 @@ class ImageProcessor(FileProcessor):
             valor_total = preco * qtde
             
             dados.append({
-                'CODCLI': ean,
                 'CNPJ': cnpj_extraido,
                 'EAN': ean,
                 'DESCRICAO': descricao,
@@ -623,7 +621,6 @@ class ImageProcessor(FileProcessor):
                     print()
                     
                     dados.append({
-                        'CODCLI': ean,
                         'CNPJ': cnpj_extraido or '',
                         'EAN': ean,
                         'DESCRICAO': descricao,
@@ -679,7 +676,6 @@ class ImageProcessor(FileProcessor):
                 print(f"     Quantidade: {qtd}")
                 
                 dados.append({
-                    'CODCLI': ean,
                     'CNPJ': cnpj_extraido,
                     'EAN': ean,
                     'DESCRICAO': descricao,
@@ -813,10 +809,6 @@ class ImageProcessor(FileProcessor):
             print(f"     [DESC pura] '{descricao}'")
             return descricao, 1, 0.0
     
-    def _extrair_desc_qtd_bahm(self, linha: str, ean: str) -> tuple:
-        """Função legada - chama a nova versão e ignora preço."""
-        descricao, qtd, _ = self._extrair_desc_qtd_preco_bahm(linha, ean)
-        return descricao, qtd
     @staticmethod
     def _eh_numero(texto: str) -> bool:
         """Verifica se texto é um número (inteiro ou decimal com vírgula/ponto)."""
@@ -895,21 +887,18 @@ class ImageProcessor(FileProcessor):
                 preco = normalizar_preco(produto.get('preco_unitario', 0))
                 
                 dados.append({
-                    'PEDIDO': numero_pedido,
-                    'CODCLI': '',
                     'CNPJ': cnpj,
                     'EAN': ean_value,
                     'DESCRICAO': desc_limpa.strip(),
                     'PREÇO': preco,
-                    'QTDE': qtde,
-                    'TOTAL': qtde * preco if preco > 0 else 0
+                    'QTDE': qtde
                 })
         
         df = pd.DataFrame(dados) if dados else None
         
-        # Reordenar colunas para incluir PEDIDO no início
+        # Reordenar colunas: CNPJ, EAN, DESCRICAO, PREÇO, QTDE
         if df is not None:
-            col_order = [col for col in ['PEDIDO', 'CODCLI', 'CNPJ', 'EAN', 'DESCRICAO', 'PREÇO', 'QTDE', 'TOTAL'] if col in df.columns]
+            col_order = [col for col in ['CNPJ', 'EAN', 'DESCRICAO', 'PREÇO', 'QTDE'] if col in df.columns]
             df = df[col_order]
         
         return df

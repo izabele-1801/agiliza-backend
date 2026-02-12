@@ -1,0 +1,147 @@
+{
+  "processor": "PrudenceProcessor",
+  "version": "1.0",
+  "description": "Configuração de extração para PDFs Prudence",
+  "last_updated": "2026-02-12T14:57:00",
+  
+  "extraction_rules": {
+    "ean": {
+      "pattern": "\\b([3678]\\d{12})\\b",
+      "description": "Código de barras com 13 dígitos começando em 3, 6, 7 ou 8",
+      "example": "7898079002963"
+    },
+    
+    "cnpj": {
+      "pattern": "LOJA\\d+\\s*-\\s*([\\d.]+)",
+      "description": "CNPJ extraído da linha de cabeçalho da loja",
+      "example": "20705123000135"
+    },
+    
+    "qtde_compra": {
+      "pattern": "P(\\d)E",
+      "description": "Quantidade (COMPRA) codificada no padrão P[DIGIT]E dentro do texto corrupto da coluna Laboratório/Descrição",
+      "range": [1, 9],
+      "examples": [
+        {
+          "text": "P3E,0S0SOAL",
+          "extracted_value": 3,
+          "source_column": "Compra (corrupted OCR)"
+        },
+        {
+          "text": "P2E,0S0SOAL",
+          "extracted_value": 2,
+          "source_column": "Compra (corrupted OCR)"
+        },
+        {
+          "text": "P1E,0S0SOAL",
+          "extracted_value": 1,
+          "source_column": "Compra (corrupted OCR)"
+        }
+      ]
+    },
+    
+    "preco_custo": {
+      "pattern": "(\\d+[,\\.\\]\\d{2})",
+      "description": "Preço unitário (CUSTO) - primeiro número decimal encontrado na linha",
+      "extraction_order": "first",
+      "validation": "valor > 0",
+      "examples": [
+        {
+          "line": "51494 7898079002963 PRESERVATIVO... 9,69 29,07",
+          "extracted_value": "9.69",
+          "source": "primeira ocorrência de X,XX"
+        },
+        {
+          "line": "53161 7898079001355 PRES PRUDENCE... 4,45 8,90",
+          "extracted_value": "4.45",
+          "source": "primeira ocorrência de X,XX"
+        }
+      ]
+    },
+    
+    "descricao": {
+      "extraction": "Tudo após EAN até LTDA ou até o primeiro número decimal",
+      "cleaning": [
+        "Remove EAN",
+        "Remove valores numéricos",
+        "Normaliza espaços múltiplos",
+        "Limita a 100 caracteres",
+        "Aplica extract_multiplicador_fardos()"
+      ],
+      "example": "PRESERVATIVO PRUDENCE ULTRA SENSIVEL"
+    }
+  },
+  
+  "file_routing": {
+    "excel": ["xlsx", "xls"],
+    "pdf": ["pdf"],
+    "text": ["txt"]
+  },
+  
+  "validation_rules": {
+    "qtde": {
+      "min": 1,
+      "max": 9,
+      "error_action": "discard_line"
+    },
+    "preco": {
+      "min": 0.01,
+      "error_action": "discard_line"
+    },
+    "ean": {
+      "required": true,
+      "error_action": "discard_line"
+    },
+    "descricao": {
+      "required": true,
+      "min_length": 1,
+      "error_action": "discard_line"
+    }
+  },
+  
+  "sample_data": {
+    "test_pdf": "/home/agiliza/producao/modelos_pedidos/PRUDENCE.pdf",
+    "expected_output": [
+      {
+        "ean": "7898079002963",
+        "descricao": "PRESERVATIVO PRUDENCE ULTRA SENSIVEL",
+        "qtde": 3,
+        "preco": 9.69
+      },
+      {
+        "ean": "7898079001355",
+        "descricao": "PRES PRUDENCE CHICLETE 3UND",
+        "qtde": 2,
+        "preco": 4.45
+      },
+      {
+        "ean": "7898079000273",
+        "descricao": "PRUDENCE EXTRA GDE ULTRA SENSIVEL",
+        "qtde": 2,
+        "preco": 10.17
+      },
+      {
+        "ean": "7898079000549",
+        "descricao": "PRESERVATIVO PRUDENCE SENSACOES RETARDANTE",
+        "qtde": 1,
+        "preco": 6.76
+      }
+    ]
+  },
+  
+  "notes": [
+    "O PDF tem OCR corrompido mas segue estrutura consistente",
+    "A coluna Compra (QTDE) está corrompida como 'P[DIGIT]E,0S0SOAL'",
+    "A coluna Custo (PREÇO) contém valores decimais X,XX porém aparece em posição diferente",
+    "O header está na linha 6 contendo: 'Código Código barras Mercadoria Laboratório Q. Emb. Compra Custo Custo Total'",
+    "Cada página pode ter múltiplos CNPJs/lojas (uma por página)"
+  ],
+  
+  "output_columns": [
+    "CNPJ",
+    "EAN",
+    "DESCRICAO",
+    "QTDE",
+    "PREÇO"
+  ]
+}

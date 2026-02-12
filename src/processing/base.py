@@ -8,12 +8,13 @@ class FileProcessor(ABC):
     """Interface para processadores de arquivo."""
 
     @abstractmethod
-    def process(self, file_content: bytes) -> pd.DataFrame | None:
+    def process(self, file_content: bytes, filename: str = None) -> pd.DataFrame | None:
         """
         Processa o arquivo e retorna um DataFrame.
         
         Args:
             file_content: Conteúdo do arquivo em bytes
+            filename: Nome do arquivo (opcional, para contexto)
             
         Returns:
             DataFrame com dados processados ou None se erro

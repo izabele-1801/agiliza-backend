@@ -10,7 +10,7 @@ from src.utils.validators import extract_cnpj, is_valid_cnpj, extract_ean13, nor
 class TXTProcessor(FileProcessor):
     """Processa arquivos TXT."""
 
-    def process(self, file_content: bytes) -> pd.DataFrame | None:
+    def process(self, file_content: bytes, filename: str = None) -> pd.DataFrame | None:
         """Processa TXT e extrai dados."""
         try:
             texto = file_content.decode('utf-8', errors='ignore')
@@ -156,73 +156,38 @@ class TXTProcessor(FileProcessor):
             })
     
     def _extrair_ean(self, linha: str) -> str | None:
-        """Extrai EAN-14 (começando com 0) ou EAN-13 da linha."""
-        # Primeiro tenta EAN-14 (14 dígitos começando com 0)
+        """Extrai EAN-14 (com 0 inicial) ou EAN-13 da linha."""
         match = re.search(r'\b(0\d{13})\b', linha)
         if match:
-            ean14 = match.group(1)
-            # Remove o zero inicial para converter em EAN-13
-            return ean14[1:]
-        
-        # Depois tenta EAN-13 padrão
+            return match.group(1)[1:]  # Remove o zero inicial
         return extract_ean13(linha)
     
     def _extrair_descricao(self, linha: str, ean: str) -> str:
         """Extrai a descrição do produto da linha."""
-        # Estratégia 1: Se a linha tem colons (formato tabular com separadores)
         if ':' in linha:
             partes = linha.split(':')
-            # Procura pela coluna que contém a descrição (geralmente após o EAN)
             for i, parte in enumerate(partes):
-                if ean in parte or (len(partes) > i+1 and ean in partes[i+1]):
-                    # A descrição está na próxima coluna ou na coluna do EAN
-                    desc_candidato = partes[i+2].strip() if len(partes) > i+2 else partes[i+1].strip()
-                    if desc_candidato and not desc_candidato.isdigit():
-                        return desc_candidato
-            # Se não encontrou, procura pela coluna mais longa (que provavelmente é a descrição)
+                if ean in parte or (i + 1 < len(partes) and ean in partes[i+1]):
+                    desc = partes[i+2].strip() if i + 2 < len(partes) else partes[i+1].strip()
+                    if desc and not desc.isdigit():
+                        return desc
             for parte in partes:
                 parte_limpa = parte.strip()
                 if len(parte_limpa) > 10 and not parte_limpa.replace('.', '').replace(',', '').isdigit():
                     return parte_limpa
         
-        # Estratégia 2: Formato tradicional sem colons
-        # Formato: EAN-14/13 + DESCRIÇÃO + QUANTIDADE + PREÇOS
-        # Exemplo: "07896110007502    ABS SYM PROT DIARIO 15UN C/PERF                                2            4,55"
-        
-        # Encontra a posição do EAN (pode ser EAN-14 com 0 inicial)
         ean_pattern = r'0?' + re.escape(ean)
         match = re.search(ean_pattern, linha)
-        
         if not match:
             return ''
         
-        # Pega tudo após o EAN
-        pos_fim_ean = match.end()
-        resto = linha[pos_fim_ean:]
+        resto = linha[match.end():].lstrip()
         
-        # Remove espaços iniciais
-        resto = resto.lstrip()
+        for pattern in [r'(.+?)\s{2,}\d+\s+[\d,\.]+', r'(.+?)\s+\d+\s*$', r'(.+?)\s+[\d,\.]+\s*$']:
+            m = re.match(pattern, resto)
+            if m:
+                return m.group(1).strip()
         
-        # A descrição vai até encontrar múltiplos espaços seguidos de números (quantidade/preço)
-        # Padrão: descrição + espaços + número (quantidade)
-        match_desc = re.match(r'(.+?)\s{2,}\d+\s+[\d,\.]+', resto)
-        if match_desc:
-            descricao = match_desc.group(1).strip()
-            return descricao
-        
-        # Se não encontrou pelo padrão acima, tenta pegar até o primeiro número isolado
-        match_desc2 = re.match(r'(.+?)\s+\d+\s*$', resto)
-        if match_desc2:
-            descricao = match_desc2.group(1).strip()
-            return descricao
-        
-        # Última tentativa: pega tudo até encontrar padrão de preço
-        match_desc3 = re.match(r'(.+?)\s+[\d,\.]+\s*$', resto)
-        if match_desc3:
-            descricao = match_desc3.group(1).strip()
-            return descricao
-        
-        # Se nada funcionou, retorna o resto limpo
         return resto.strip()
 
     def _extrair_precos(self, linha: str, quantidade: int) -> tuple[float, float]:
@@ -431,10 +396,10 @@ class TXTProcessor(FileProcessor):
         if df is not None:
             if self.is_winthor:
                 # Winthor: sem coluna PREÇO
-                col_order = [col for col in ['PEDIDO', 'CODCLI', 'CNPJ', 'EAN', 'DESCRICAO', 'QTDE', 'TOTAL'] if col in df.columns]
+                col_order = [col for col in ['CNPJ', 'EAN', 'DESCRICAO', 'QTDE', 'PREÇO'] if col in df.columns]
             else:
                 # Normal: com coluna PREÇO
-                col_order = [col for col in ['PEDIDO', 'CODCLI', 'CNPJ', 'EAN', 'DESCRICAO', 'PREÇO', 'QTDE', 'TOTAL'] if col in df.columns]
+                col_order = [col for col in ['CNPJ', 'EAN', 'DESCRICAO', 'PREÇO', 'QTDE'] if col in df.columns]
             df = df[col_order]
         
         return df

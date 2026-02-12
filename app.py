@@ -30,20 +30,8 @@ app.add_middleware(
 # Incluir rotas da API
 app.include_router(router)
 
-# Servir arquivos estáticos do frontend
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
-if os.path.exists(frontend_path):
-    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
-
-@app.get("/")
-async def read_root():
-    """Serve o arquivo index.html do frontend."""
-    index_path = os.path.join(frontend_path, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"message": "Gerador de Planilhas API v1.0"}
-
-@app.get("/api/info")
+# Definir endpoints fixos ANTES de montar static files (que captura tudo)
+@app.get("/api/info", include_in_schema=False)
 async def get_info():
     """Retorna informações sobre a API."""
     return {
@@ -57,20 +45,42 @@ async def get_info():
         ]
     }
 
+# Caminho do frontend
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+
+# Montar pasta frontend como arquivos estáticos na raiz (DEPOIS das rotas da API)
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="static")
+
 if __name__ == "__main__":
     import uvicorn
+    import sys
     
-    print("\n" + "="*50)
-    print(" Servidor iniciando...")
-    print("="*50)
-    print("\nAPI: http://localhost:5000")
-    print("Frontend: http://localhost:5000")
-    print("\nPressione Ctrl+C para parar")
-    print("="*50 + "\n")
+    # Detectar ambiente
+    is_production = "--prod" in sys.argv
+    port = 80 if is_production else 5000
+    host = "0.0.0.0"
     
+    print("\n" + "="*60)
+    print(" 🚀 AGILIZA - Gerador de Planilhas")
+    print("="*60)
+    print(f" Modo: {'📦 PRODUÇÃO' if is_production else '🔧 DESENVOLVIMENTO'}")
+    print(f" Host: {host}")
+    print(f" Porta: {port}")
+    if is_production:
+        print(f" URL: http://192.168.1.25")
+    else:
+        print(f" URL: http://localhost:{port}")
+    print("\n Pressione Ctrl+C para parar")
+    print("="*60 + "\n")
+    
+    # Rodar sem reload quando em produção ou quando há workers múltiplos
     uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=5000,
-        log_level="info"
+        "app:app",
+        host=host,
+        port=port,
+        log_level="info",
+        reload=not is_production,
+        reload_dirs=["."] if not is_production else None,
+        workers=4 if is_production else 1
     )
