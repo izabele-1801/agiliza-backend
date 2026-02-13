@@ -38,19 +38,110 @@ class LabotratProcessor(FileProcessor):
             return None
     
     def _extrair_dados(self, df: pd.DataFrame) -> pd.DataFrame | None:
-        """Extrai dados do DataFrame Labotrat."""
+        """Extrai dados do DataFrame Labotrat - detecta formato automaticamente."""
         try:
-            if df.empty or len(df) < 20:
-                print("[LABOTRAT] DataFrame vazio ou muito pequeno (<20 linhas)")
+            if df.empty:
+                print("[LABOTRAT] DataFrame vazio")
+                return None
+            
+            # Detectar formato baseado no número de colunas
+            num_cols = len(df.columns)
+            
+            if num_cols == 2:
+                # Formato SIMPLES: Código do Produto | Quantidade
+                print(f"[LABOTRAT] Detectado formato SIMPLES (2 colunas)")
+                return self._processar_formato_simples(df)
+            elif num_cols >= 10:
+                # Formato COMPLETO: estrutura complexa com CNPJ, descrição, preço, etc
+                print(f"[LABOTRAT] Detectado formato COMPLETO ({num_cols} colunas)")
+                return self._processar_formato_completo(df)
+            else:
+                print(f"[LABOTRAT] Formato desconhecido: {num_cols} colunas")
+                return None
+        
+        except Exception as e:
+            print(f"[LABOTRAT] ERRO ao extrair dados: {e}")
+            return None
+    
+    def _processar_formato_simples(self, df: pd.DataFrame) -> pd.DataFrame | None:
+        """
+        Processa formato SIMPLES: Código do Produto | Quantidade
+        Retorna dados com apenas código e quantidade (sem descrição/preço).
+        """
+        try:
+            dados = []
+            
+            # Header geralmente está na linha 0
+            header_idx = 0
+            data_start_idx = 1
+            
+            # Processar todas as linhas de dados
+            for idx in range(data_start_idx, len(df)):
+                try:
+                    row = df.iloc[idx]
+                    
+                    # Coluna 0: Código do Produto
+                    codigo_raw = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ''
+                    if not codigo_raw or codigo_raw.lower() == 'nan':
+                        continue
+                    
+                    # Coluna 1: Quantidade
+                    qtde_raw = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ''
+                    if not qtde_raw or qtde_raw.lower() in ['nan', '']:
+                        continue
+                    
+                    # Validar QTDE
+                    try:
+                        qtde_float = float(qtde_raw.replace(',', '.'))
+                        qtde = int(qtde_float)
+                    except (ValueError, AttributeError):
+                        print(f"[LABOTRAT] AVISO: Quantidade inválida '{qtde_raw}' na linha {idx+1}")
+                        continue
+                    
+                    if qtde <= 0:
+                        continue
+                    
+                    # Para formato simples, usamos código como EAN e nome genérico
+                    dados.append({
+                        'CNPJ': 'N/A',  # Não disponível neste formato
+                        'EAN': codigo_raw,
+                        'DESCRICAO': f'Produto {codigo_raw}',  # Descrição genérica
+                        'QTDE': qtde,
+                        'PREÇO': None  # Não disponível neste formato
+                    })
+                    
+                except Exception as e:
+                    print(f"[LABOTRAT] ERRO ao processar linha {idx+1}: {e}")
+                    continue
+            
+            if dados:
+                result_df = pd.DataFrame(dados)
+                print(f"[LABOTRAT] Formato simples: {len(result_df)} itens extraídos (códigos de produto)")
+                return result_df
+            else:
+                print("[LABOTRAT] Nenhum dado extraído do formato simples")
+                return None
+        
+        except Exception as e:
+            print(f"[LABOTRAT] ERRO ao processar formato simples: {e}")
+            return None
+    
+    def _processar_formato_completo(self, df: pd.DataFrame) -> pd.DataFrame | None:
+        """
+        Processa formato COMPLETO: estrutura com CNPJ, EAN, descrição, QtD, preço, etc.
+        """
+        try:
+            if len(df) < 20:
+                print("[LABOTRAT] DataFrame muito pequeno para formato completo (<20 linhas)")
                 return None
             
             # Extrair CNPJ da linha 5 (índice 4), coluna 13
             cnpj = self._extrair_cnpj(df)
             if not cnpj:
-                print("[LABOTRAT] CNPJ não encontrado na linha 5, coluna 13")
-                return None
-            
-            print(f"[LABOTRAT] CNPJ extraído: {cnpj}")
+                print("[LABOTRAT] ⚠️  CNPJ não encontrado, continuando sem CNPJ...")
+                cnpj = "N/A"
+            else:
+                print(f"[LABOTRAT] CNPJ extraído: {cnpj}")
             
             # Indices das colunas (0-based):
             # EAN 13: coluna 2
@@ -64,7 +155,6 @@ class LabotratProcessor(FileProcessor):
             col_desc = 5
             col_qtde = 6
             col_preco = 7
-            header_idx = 18
             data_start_idx = 19
             
             dados = []
@@ -87,7 +177,7 @@ class LabotratProcessor(FileProcessor):
                     
                     # Extrair e validar QTDE
                     qtde_raw = str(row.iloc[col_qtde]).strip() if col_qtde < len(row) and pd.notna(row.iloc[col_qtde]) else ''
-                    if not qtde_raw or qtde_raw.lower() in ['nan', '']:
+                    if not qtde_raw or qtde_raw.lower() in ['nan', '', 'qtde', 'qtde.']:
                         continue
                     
                     # Validar que QTDE é inteiro positivo
@@ -99,7 +189,7 @@ class LabotratProcessor(FileProcessor):
                                 print(f"[LABOTRAT] AVISO: QTDE decimal convertida de '{qtde_raw}' para {int(qtde_float)}")
                             qtde = int(qtde_float)
                         except ValueError:
-                            print(f"[LABOTRAT] ERRO: QTDE inválida (não inteiro): '{qtde_raw}' na linha {idx+1}")
+                            # Se não conseguir converter, pula esta linha (provavelmente é header)
                             continue
                     else:
                         qtde = int(qtde_raw)
@@ -129,11 +219,11 @@ class LabotratProcessor(FileProcessor):
             
             result_df = pd.DataFrame(dados) if dados else None
             if result_df is not None:
-                print(f"[LABOTRAT] OK: {len(result_df)} produtos extraídos")
+                print(f"[LABOTRAT] Formato completo: {len(result_df)} produtos extraídos")
             return result_df
         
         except Exception as e:
-            print(f"[LABOTRAT] ERRO ao extrair dados: {e}")
+            print(f"[LABOTRAT] ERRO ao processar formato completo: {e}")
             return None
     
     def _extrair_cnpj(self, df: pd.DataFrame) -> str | None:
