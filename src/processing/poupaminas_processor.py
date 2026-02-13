@@ -210,7 +210,11 @@ class PoupaminasProcessor(FileProcessor):
             
             col_ean = self._buscar_coluna(df.columns, ['Cód. Barras', 'Código', 'EAN'])
             col_desc = self._buscar_coluna(df.columns, ['Produto', 'Descrição', 'Mercadoria'])
-            col_qtde = self._buscar_coluna(df.columns, ['Qtd.', 'Quantidade', 'Qtde'])
+            # Forçar uso exclusivo da coluna 'Qtd.' para QTDE
+            col_qtde = self._buscar_coluna(df.columns, ['Qtd.'])
+            if not col_qtde:
+                print("[POUPAMINAS] ERRO: Coluna 'Qtd.' não encontrada. Não será extraída QTDE.")
+                return None
             col_preco = self._buscar_coluna(df.columns, ['Preço Compra', 'Preço', 'Custo'])
             
             if not all([col_ean, col_desc, col_qtde]):
@@ -220,19 +224,22 @@ class PoupaminasProcessor(FileProcessor):
             for _, row in df.iterrows():
                 ean = extract_ean13(str(row[col_ean]).strip()) or str(row[col_ean]).strip()
                 desc = str(row[col_desc]).strip() if col_desc else ''
-                
-                try:
-                    qtde = int(float(str(row[col_qtde]).replace(',', '.')))
-                except:
+                qtde_raw = str(row[col_qtde]).strip()
+                # QTDE deve ser inteiro, sem vírgula ou ponto
+                if not qtde_raw.isdigit():
+                    # Se contém vírgula ou ponto, é erro de extração
+                    if ',' in qtde_raw or '.' in qtde_raw:
+                        print(f"[POUPAMINAS] ERRO: QTDE inválida (valor decimal): '{qtde_raw}' na linha com EAN {ean}")
+                        continue
+                    # Se não é número, também rejeita
+                    print(f"[POUPAMINAS] ERRO: QTDE inválida (não inteiro): '{qtde_raw}' na linha com EAN {ean}")
                     continue
-                
+                qtde = int(qtde_raw)
                 if not ean or not desc or qtde <= 0:
                     continue
-                
                 desc_limpa, mult = extract_multiplicador_fardos(desc)
-                qtde = qtde * mult
+                # QTDE não deve ser multiplicado por mult - deve ser apenas o valor da coluna 'Qtd.'
                 preco = normalizar_preco(row[col_preco]) if col_preco else 0.0
-                
                 dados.append({
                     'CNPJ': cnpj,
                     'EAN': ean,
@@ -240,7 +247,6 @@ class PoupaminasProcessor(FileProcessor):
                     'QTDE': qtde,
                     'PREÇO': preco if preco > 0 else None
                 })
-            
             return pd.DataFrame(dados) if dados else None
         except Exception as e:
             print(f"[POUPAMINAS] ERRO ao extrair dados: {e}")
@@ -249,21 +255,38 @@ class PoupaminasProcessor(FileProcessor):
     def _extrair_de_tabela(self, table: list, cnpj: str) -> list:
         """Extrai dados de tabelas PDF."""
         dados = []
-        for row in table:
-            if not row or len(row) < 3:
+        if not table or len(table) < 2:
+            return dados
+        header = [str(col).strip() for col in table[0]]
+        # Buscar índices das colunas relevantes
+        try:
+            idx_ean = header.index('Cód. Barras')
+            idx_desc = header.index('Produto')
+            idx_qtde = header.index('Qtd.')
+            idx_preco = header.index('Preço Compra') if 'Preço Compra' in header else None
+        except ValueError as e:
+            print(f"[POUPAMINAS] ERRO: Cabeçalho esperado não encontrado: {e}")
+            return dados
+        for row in table[1:]:
+            if not row or len(row) <= max(idx_ean, idx_desc, idx_qtde):
                 continue
             try:
-                ean = extract_ean13(str(row[0]).strip()) or str(row[0]).strip()
-                desc = str(row[1]).strip() if row[1] else ''
-                qtde = int(float(str(row[2]).replace(',', '.')))
-                
+                ean = extract_ean13(str(row[idx_ean]).strip()) or str(row[idx_ean]).strip()
+                desc = str(row[idx_desc]).strip() if row[idx_desc] else ''
+                qtde_raw = str(row[idx_qtde]).strip()
+                # QTDE deve ser inteiro, sem vírgula ou ponto
+                if not qtde_raw.isdigit():
+                    if ',' in qtde_raw or '.' in qtde_raw:
+                        print(f"[POUPAMINAS] ERRO: QTDE inválida (valor decimal): '{qtde_raw}' na linha com EAN {ean}")
+                        continue
+                    print(f"[POUPAMINAS] ERRO: QTDE inválida (não inteiro): '{qtde_raw}' na linha com EAN {ean}")
+                    continue
+                qtde = int(qtde_raw)
                 if not ean or not desc or qtde <= 0:
                     continue
-                
                 desc_limpa, mult = extract_multiplicador_fardos(desc)
-                qtde = qtde * mult
-                preco = normalizar_preco(row[3]) if len(row) > 3 else 0.0
-                
+                # QTDE não deve ser multiplicado por mult - deve ser apenas o valor da coluna 'Qtd.'
+                preco = normalizar_preco(row[idx_preco]) if idx_preco is not None and len(row) > idx_preco else 0.0
                 dados.append({
                     'CNPJ': cnpj,
                     'EAN': ean,
@@ -271,7 +294,8 @@ class PoupaminasProcessor(FileProcessor):
                     'QTDE': qtde,
                     'PREÇO': preco if preco > 0 else None
                 })
-            except:
+            except Exception as e:
+                print(f"[POUPAMINAS] ERRO ao extrair linha de tabela: {e}")
                 continue
         return dados
     
