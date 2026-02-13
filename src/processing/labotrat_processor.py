@@ -171,10 +171,16 @@ class LabotratProcessor(FileProcessor):
                 print(f"[LABOTRAT] CNPJ extraído: {cnpj}")
             
             # Indices das colunas (0-based):
-            # EAN 13: coluna 2
-            # Descrição: coluna 5
-            # Qtde.: coluna 6
-            # Pço. Tabela: coluna 7
+            # Col 1: Código
+            # Col 2: EAN 13
+            # Col 3: Linha (nome do produto/categoria)
+            # Col 4: Qt. Cx. (Quantidade por Caixa) - NÃO USAR COMO MULTIPLICADOR
+            # Col 5: Descrição
+            # Col 6: Qtde. (QUANTIDADE - usar como está, SEM multiplicação)
+            # Col 7: Pço. Tabela
+            # Col 8: % Desc.
+            # Col 9: Pço. Desc.
+            # Col 10: Subtotal
             # Cabeçalho está na linha 19 (índice 18)
             # Dados começam na linha 20 (índice 19)
             
@@ -203,6 +209,8 @@ class LabotratProcessor(FileProcessor):
                         continue
                     
                     # Extrair e validar QTDE
+                    # ⚠️ IMPORTANTE: QTDE é extraída da col 6 e usada SEM MULTIPLICAÇÃO
+                    # Não multiplicar por Qt. Cx. (col 4), não multiplicar por nada na descrição
                     qtde_raw = str(row.iloc[col_qtde]).strip() if col_qtde < len(row) and pd.notna(row.iloc[col_qtde]) else ''
                     if not qtde_raw or qtde_raw.lower() in ['nan', '', 'qtde', 'qtde.']:
                         continue
@@ -221,6 +229,7 @@ class LabotratProcessor(FileProcessor):
                     else:
                         qtde = int(qtde_raw)
                     
+                    # Validar QTDE > 0 e NÃO multiplicar por nada
                     if qtde <= 0:
                         continue
                     
