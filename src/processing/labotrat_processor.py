@@ -1,6 +1,7 @@
 """Processador especializado para Labotrat."""
 
 import pandas as pd
+import re
 from io import BytesIO
 from .base import FileProcessor
 from src.utils.validators import extract_cnpj, extract_ean13, normalizar_preco
@@ -27,12 +28,38 @@ class LabotratProcessor(FileProcessor):
             return None
     
     def _processar_excel(self, file_content: bytes, ext: str) -> pd.DataFrame | None:
-        """Processa arquivo Excel Labotrat."""
+        """Processa arquivo Excel Labotrat - tenta múltiplas abas."""
         try:
             engine = 'openpyxl' if ext == 'xlsx' else 'xlrd'
-            # Ler sem headers para processar a estrutura custom
-            df = pd.read_excel(BytesIO(file_content), engine=engine, header=None)
-            return self._extrair_dados(df)
+            
+            # Tentar abas em ordem de preferência
+            sheet_names_priority = [
+                'TABELA VENDA 2025.2',  # Formato completo (andradas, buenos aires, etc)
+                'Tabela Venda',         # Variante
+                0                        # Aba padrão
+            ]
+            
+            for sheet_to_try in sheet_names_priority:
+                try:
+                    # Ler sem headers para processar a estrutura custom
+                    df = pd.read_excel(BytesIO(file_content), engine=engine, sheet_name=sheet_to_try, header=None)
+                    
+                    if df.empty:
+                        continue
+                    
+                    result = self._extrair_dados(df)
+                    if result is not None and len(result) > 0:
+                        return result
+                    
+                except Exception as e:
+                    # Se a aba não existe, tenta a próxima
+                    if 'not found' not in str(e).lower() and 'does not exist' not in str(e).lower():
+                        print(f"[LABOTRAT] Aviso ao ler aba '{sheet_to_try}': {e}")
+                    continue
+            
+            print("[LABOTRAT] Nenhuma aba válida encontrada")
+            return None
+            
         except Exception as e:
             print(f"[LABOTRAT] ERRO ao processar Excel: {e}")
             return None
@@ -227,7 +254,10 @@ class LabotratProcessor(FileProcessor):
             return None
     
     def _extrair_cnpj(self, df: pd.DataFrame) -> str | None:
-        """Extrai CNPJ da linha 5, coluna 13 (0-based)."""
+        """
+        Extrai CNPJ da linha 5 (índice 4).
+        Procura por padrão de CNPJ formatado: xx.xxx.xxx/xxxx-xx em qualquer coluna.
+        """
         try:
             # Linha 5 é índice 4
             if len(df) < 5:
@@ -235,11 +265,26 @@ class LabotratProcessor(FileProcessor):
             
             row = df.iloc[4]
             
-            # Coluna 13 (índice 13)
+            # Padrão de CNPJ formatado: xx.xxx.xxx/xxxx-xx
+            cnpj_pattern = r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}'
+            
+            # Procurar em todas as colunas da linha 5
+            for col_idx, val in enumerate(row):
+                if pd.notna(val):
+                    val_str = str(val).strip()
+                    # Procurar padrão formatado
+                    match = re.search(cnpj_pattern, val_str)
+                    if match:
+                        cnpj_formatado = match.group(0)
+                        print(f"[LABOTRAT] CNPJ encontrado formatado (col {col_idx}): {cnpj_formatado}")
+                        return cnpj_formatado
+            
+            # Se não encontrar formatado, tentar com extract_cnpj (que tira formatação)
             if 13 < len(row):
                 valor = str(row.iloc[13]).strip() if pd.notna(row.iloc[13]) else ''
                 cnpj = extract_cnpj(valor)
                 if cnpj:
+                    print(f"[LABOTRAT] CNPJ extraído sem formatação: {cnpj}")
                     return cnpj
             
             return None
