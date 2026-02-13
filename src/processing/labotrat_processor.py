@@ -257,6 +257,7 @@ class LabotratProcessor(FileProcessor):
         """
         Extrai CNPJ da linha 5 (índice 4).
         Procura por padrão de CNPJ formatado: xx.xxx.xxx/xxxx-xx em qualquer coluna.
+        Retorna apenas os dígitos (sem pontos, traços ou barras).
         """
         try:
             # Linha 5 é índice 4
@@ -276,15 +277,17 @@ class LabotratProcessor(FileProcessor):
                     match = re.search(cnpj_pattern, val_str)
                     if match:
                         cnpj_formatado = match.group(0)
-                        print(f"[LABOTRAT] CNPJ encontrado formatado (col {col_idx}): {cnpj_formatado}")
-                        return cnpj_formatado
+                        # Limpar: remove . / -
+                        cnpj_limpo = cnpj_formatado.replace('.', '').replace('/', '').replace('-', '')
+                        print(f"[LABOTRAT] CNPJ extraído (col {col_idx}): {cnpj_formatado} → {cnpj_limpo}")
+                        return cnpj_limpo
             
             # Se não encontrar formatado, tentar com extract_cnpj (que tira formatação)
             if 13 < len(row):
                 valor = str(row.iloc[13]).strip() if pd.notna(row.iloc[13]) else ''
                 cnpj = extract_cnpj(valor)
                 if cnpj:
-                    print(f"[LABOTRAT] CNPJ extraído sem formatação: {cnpj}")
+                    print(f"[LABOTRAT] CNPJ extraído (sem formatação): {cnpj}")
                     return cnpj
             
             return None
